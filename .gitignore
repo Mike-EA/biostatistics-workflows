@@ -1,0 +1,12 @@
+.Rhistory
+.RData
+Rplots.pdf
+.Rproj.user/
+
+diapositivas/*.aux
+diapositivas/*.log
+diapositivas/*.nav
+diapositivas/*.out
+diapositivas/*.snm
+diapositivas/*.toc
+diapositivas/*.vrb
