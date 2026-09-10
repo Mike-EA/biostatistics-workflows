@@ -1,0 +1,33 @@
+id_paciente,grupo,hemoglobina_g_dl,pcr_mg_l
+PX01,Control,12.4,0.2
+PX02,Enfermedad estable,11.9,0.6
+PX03,Enfermedad activa,11.5,0.8
+PX04,Control,13.1,0.3
+PX05,Enfermedad estable,12.7,0.8
+PX06,Enfermedad activa,12.2,1
+PX08,Enfermedad estable,13,0.9
+PX09,Enfermedad activa,12.6,1.2
+PX10,Control,13.7,0.5
+PX11,Enfermedad estable,13.2,1
+PX13,Control,13.8,0.6
+PX14,Enfermedad estable,13.4,1.1
+PX15,Enfermedad activa,13.1,1.8
+PX16,Control,14,0.7
+PX17,Enfermedad estable,13.6,1.2
+PX18,Enfermedad activa,13.3,2.2
+PX19,Control,14.2,0.8
+PX20,Enfermedad estable,13.8,1.3
+PX21,Enfermedad activa,13.5,2.8
+PX22,Control,14.4,0.9
+PX23,Enfermedad estable,14,1.5
+PX24,Enfermedad activa,13.7,3.5
+PX25,Control,14.6,1
+PX26,Enfermedad estable,14.2,1.8
+PX27,Enfermedad activa,13.9,4.6
+PX28,Control,14.8,1.1
+PX30,Enfermedad activa,14.1,6.2
+PX31,Control,15,1.2
+PX32,Enfermedad estable,14.7,2.4
+PX33,Enfermedad activa,14.5,12.8
+PX35,Enfermedad estable,15.2,3.2
+PX36,Enfermedad activa,15,18.6
