@@ -14,44 +14,68 @@
 
 ## Propósito
 
-Este repositorio difunde **workflows claros, reproducibles y orientados a la práctica** para enseñar bioestadística y análisis de datos en ciencias biomédicas con R.
+Este repositorio reúne **workflows claros, reproducibles y orientados a la práctica** para enseñar bioestadística, visualización y análisis de datos ómicos en ciencias biomédicas con R.
 
-Cada módulo integra datos sintéticos, código comentado, resultados verificables y material docente listo para utilizar en clase.
+Cada módulo integra datos sintéticos o públicos con procedencia documentada, código comentado, resultados verificables y material docente listo para utilizar en clase.
 
 ## Contenido actual
 
-| Workflow | Temas | Materiales |
-|---|---|---|
-| Estadística descriptiva | Importación, limpieza, normalidad, media/DE y mediana/RIQ | Script, datos, presentación y guía |
-| Visualización con ggplot2 | Capas, boxplots, observaciones individuales y exportación científica | Script, infografía y figuras |
+| Workflow | Temas | Materiales | Acceso |
+|---|---|---|---|
+| Estadística descriptiva | Importación, limpieza, normalidad, media/DE y mediana/RIQ | Scripts, datos sintéticos, guía y figuras | [Abrir guía](GUIA_DEFINITIVA.md) |
+| Visualización con ggplot2 | Capas, boxplots, observaciones individuales y exportación científica | Script, infografía y figuras | [Abrir script](scripts/02_ggplot_caja_publicacion.R) |
+| Expresión diferencial en MASH | RNA-seq bulk, DESeq2, control de calidad, PCA, volcano plot y heatmap | Datos humanos de GEO, scripts, resultados, presentación y tarea | [Abrir módulo](workflows/expresion_diferencial_mash/README.md) |
 
 ## Inicio rápido
 
 1. Descarga o clona el repositorio.
 2. Abre `biostatistics-workflows.Rproj` en RStudio.
-3. Consulta la [guía definitiva](GUIA_DEFINITIVA.md).
-4. Ejecuta los scripts por secciones y revisa los archivos generados en `resultados/`.
+3. Selecciona el workflow en la tabla anterior.
+4. Lee el `README` del módulo antes de ejecutar sus scripts.
+
+Para el material introductorio de estadística descriptiva:
 
 ```r
 source("scripts/01_estadistica_descriptiva.R")
 source("scripts/02_ggplot_caja_publicacion.R")
 ```
 
+Para la práctica de expresión diferencial, abre como proyecto la carpeta
+`workflows/expresion_diferencial_mash/` y ejecuta:
+
+```r
+source("scripts/00_instalar_dependencias.R") # sólo la primera vez
+source("scripts/02_analisis_expresion_diferencial.R")
+```
+
+El script `01_preparar_dataset_GSE126848.R` documenta la preparación del dataset y no necesita ejecutarse durante la clase.
+
 ## Estructura
 
 ```text
-datos/          Datos biomédicos sintéticos
-scripts/        Workflows reproducibles en R
-diapositivas/   Presentaciones e infografías en LaTeX y PDF
-resultados/     Tablas y figuras generadas
+biostatistics-workflows/
+├── datos/                         Datos del workflow introductorio
+├── scripts/                       Scripts de estadística descriptiva y ggplot2
+├── diapositivas/                  Material visual introductorio
+├── resultados/                    Resultados del workflow introductorio
+└── workflows/
+    └── expresion_diferencial_mash/
+        ├── datos/                 Conteos y metadatos de GSE126848
+        ├── scripts/               Instalación, preparación y análisis
+        ├── resultados/            PCA, tablas, volcano plot y heatmap
+        ├── presentacion/           Presentación editable para clase
+        └── docencia/               Guía docente, tarea y rúbrica
 ```
+
+El [índice de workflows](workflows/README.md) resume la organización prevista para añadir módulos futuros.
 
 ## Principios
 
-- Datos clínicos sintéticos y anónimos.
+- Datos sintéticos, anónimos o procedentes de repositorios públicos, siempre con su fuente documentada.
 - Decisiones estadísticas explicadas, no solo ejecutadas.
 - Código sencillo que puede adaptarse a nuevos estudios.
 - Tablas y figuras preparadas con criterios de comunicación científica.
+- Resultados de ejemplo y registro de versiones para comprobar la reproducibilidad.
 
 ## Audiencia
 

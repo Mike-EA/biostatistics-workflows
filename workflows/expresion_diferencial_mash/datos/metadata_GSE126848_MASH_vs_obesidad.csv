@@ -1,0 +1,29 @@
+sample_id,geo_accession,titulo_original,sexo,enfermedad_original,cohorte_original,grupo,descripcion_grupo
+0872,GSM3615338,Obese_1,Male,obese,Obeso_sin_MASLD,Obeso_sin_MASLD,Obesidad con histologia hepatica normal
+0874,GSM3615339,Obese_2,Male,obese,Obeso_sin_MASLD,Obeso_sin_MASLD,Obesidad con histologia hepatica normal
+0876,GSM3615340,Obese_3,Male,obese,Obeso_sin_MASLD,Obeso_sin_MASLD,Obesidad con histologia hepatica normal
+0878,GSM3615341,Obese_4,Male,obese,Obeso_sin_MASLD,Obeso_sin_MASLD,Obesidad con histologia hepatica normal
+0886,GSM3615342,Obese_5,Male,obese,Obeso_sin_MASLD,Obeso_sin_MASLD,Obesidad con histologia hepatica normal
+0888,GSM3615343,Obese_6,Male,obese,Obeso_sin_MASLD,Obeso_sin_MASLD,Obesidad con histologia hepatica normal
+0890,GSM3615344,Obese_7,Male,obese,Obeso_sin_MASLD,Obeso_sin_MASLD,Obesidad con histologia hepatica normal
+0892,GSM3615345,Obese_8,Male,obese,Obeso_sin_MASLD,Obeso_sin_MASLD,Obesidad con histologia hepatica normal
+0894,GSM3615346,Obese_9,Male,obese,Obeso_sin_MASLD,Obeso_sin_MASLD,Obesidad con histologia hepatica normal
+0896,GSM3615347,Obese_10,Male,obese,Obeso_sin_MASLD,Obeso_sin_MASLD,Obesidad con histologia hepatica normal
+0898,GSM3615348,Obese_11,Male,obese,Obeso_sin_MASLD,Obeso_sin_MASLD,Obesidad con histologia hepatica normal
+0899,GSM3615349,Obese_12,Male,obese,Obeso_sin_MASLD,Obeso_sin_MASLD,Obesidad con histologia hepatica normal
+2684,GSM3615308,NASH_1,Male,NASH,NASH_MASH,NASH_MASH,NASH (terminologia historica; equivalente a MASH)
+2688,GSM3615309,NASH_2,Female,NASH,NASH_MASH,NASH_MASH,NASH (terminologia historica; equivalente a MASH)
+2692,GSM3615310,NASH_3,Male,NASH,NASH_MASH,NASH_MASH,NASH (terminologia historica; equivalente a MASH)
+2696,GSM3615311,NASH_4,Female,NASH,NASH_MASH,NASH_MASH,NASH (terminologia historica; equivalente a MASH)
+2698,GSM3615312,NASH_5,Male,NASH,NASH_MASH,NASH_MASH,NASH (terminologia historica; equivalente a MASH)
+2704,GSM3615313,NASH_6,Male,NASH,NASH_MASH,NASH_MASH,NASH (terminologia historica; equivalente a MASH)
+2705,GSM3615314,NASH_7,Male,NASH,NASH_MASH,NASH_MASH,NASH (terminologia historica; equivalente a MASH)
+3992,GSM3615315,NASH_8,Male,NASH,NASH_MASH,NASH_MASH,NASH (terminologia historica; equivalente a MASH)
+3994,GSM3615316,NASH_9,Male,NASH,NASH_MASH,NASH_MASH,NASH (terminologia historica; equivalente a MASH)
+3996,GSM3615317,NASH_10,Female,NASH,NASH_MASH,NASH_MASH,NASH (terminologia historica; equivalente a MASH)
+3997,GSM3615318,NASH_11,Female,NASH,NASH_MASH,NASH_MASH,NASH (terminologia historica; equivalente a MASH)
+4000,GSM3615319,NASH_12,Male,NASH,NASH_MASH,NASH_MASH,NASH (terminologia historica; equivalente a MASH)
+4004,GSM3615320,NASH_13,Male,NASH,NASH_MASH,NASH_MASH,NASH (terminologia historica; equivalente a MASH)
+4005,GSM3615321,NASH_14,Male,NASH,NASH_MASH,NASH_MASH,NASH (terminologia historica; equivalente a MASH)
+4006,GSM3615322,NASH_15,Male,NASH,NASH_MASH,NASH_MASH,NASH (terminologia historica; equivalente a MASH)
+4008,GSM3615323,NASH_16,Male,NASH,NASH_MASH,NASH_MASH,NASH (terminologia historica; equivalente a MASH)
