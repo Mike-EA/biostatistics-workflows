@@ -16,6 +16,7 @@ Si trabaja desde el proyecto principal del repositorio, cambie primero al direct
 
 - `GUIA_PRACTICA_MASH.Rmd`: guía principal con explicación, código, preguntas y resultados integrados.
 - `GUIA_PRACTICA_MASH.html`: versión ejecutada que puede abrirse en un navegador.
+- `Clase_expresion_diferencial_MASH.pptx`: presentación de la clase, incluida una descripción detallada de ambos CSV y su función en el análisis.
 - `TAREA.md`: instrucciones y rúbrica de la actividad autónoma.
 - `datos/`: conteos crudos preparados, metadatos y documentación de la fuente.
 - `scripts/00_instalar_dependencias.R`: instalación de bibliotecas.

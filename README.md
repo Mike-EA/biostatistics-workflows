@@ -24,7 +24,7 @@ Cada módulo integra datos sintéticos o públicos con procedencia documentada, 
 |---|---|---|---|
 | Estadística descriptiva | Importación, limpieza, normalidad, media/DE y mediana/RIQ | Scripts, datos sintéticos, guía y figuras | [Abrir guía](GUIA_DEFINITIVA.md) |
 | Visualización con ggplot2 | Capas, boxplots, observaciones individuales y exportación científica | Script, infografía y figuras | [Abrir script](scripts/02_ggplot_caja_publicacion.R) |
-| Expresión diferencial en MASH | RNA-seq bulk, DESeq2, control de calidad, PCA, volcano plot y heatmap | Guía R Markdown, datos humanos de GEO, scripts y tarea | [Abrir módulo](workflows/expresion_diferencial_mash/README.md) |
+| Expresión diferencial en MASH | RNA-seq bulk, DESeq2, control de calidad, PCA, volcano plot y heatmap | Guía R Markdown, presentación, datos humanos de GEO, scripts y tarea | [Abrir módulo](workflows/expresion_diferencial_mash/README.md) |
 
 ## Inicio rápido
 
@@ -61,6 +61,7 @@ biostatistics-workflows/
 └── workflows/
     └── expresion_diferencial_mash/
         ├── GUIA_PRACTICA_MASH.Rmd Guía reproducible para estudiantes
+        ├── Clase_*.pptx            Presentación de apoyo para la clase
         ├── TAREA.md               Instrucciones y rúbrica
         ├── datos/                 Conteos y metadatos de GSE126848
         └── scripts/               Instalación y análisis continuo
