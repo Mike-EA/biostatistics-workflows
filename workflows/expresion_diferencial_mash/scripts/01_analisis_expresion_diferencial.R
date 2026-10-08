@@ -21,10 +21,17 @@ suppressPackageStartupMessages({
 
 archivo_conteos <- "datos/conteos_GSE126848_MASH_vs_obesidad.csv"
 archivo_metadata <- "datos/metadata_GSE126848_MASH_vs_obesidad.csv"
+
+# Ruta donde se guardan tablas y figuras; no contiene resultados por si misma.
 carpeta_resultados <- "resultados"
 
+# FDR maxima usada para seleccionar genes.
 padj_corte <- 0.05
+
+# Magnitud minima: |log2FC| >= 1 equivale al menos al doble o a la mitad.
 lfc_corte <- 1
+
+# Numero maximo de genes que se muestran en el heatmap.
 n_heatmap <- 30
 
 dir.create(carpeta_resultados, showWarnings = FALSE, recursive = TRUE)
@@ -33,8 +40,19 @@ dir.create(carpeta_resultados, showWarnings = FALSE, recursive = TRUE)
 # 1. IMPORTAR CONTEOS CRUDOS Y METADATOS
 # ----------------------------------------------------------------------------
 
-conteos_df <- read_csv(archivo_conteos, show_col_types = FALSE)
-metadata <- read_csv(archivo_metadata, show_col_types = FALSE)
+conteos_df <- read.csv(
+  archivo_conteos,
+  stringsAsFactors = FALSE,
+  check.names = FALSE,
+  colClasses = c(ensembl_id = "character")
+)
+
+metadata <- read.csv(
+  archivo_metadata,
+  stringsAsFactors = FALSE,
+  check.names = FALSE,
+  colClasses = c(sample_id = "character")
+)
 
 stopifnot(
   "ensembl_id" %in% names(conteos_df),
@@ -47,6 +65,15 @@ conteos <- conteos_df |>
   column_to_rownames("ensembl_id") |>
   as.matrix()
 
+stopifnot(
+  setequal(colnames(conteos), metadata$sample_id),
+  !anyNA(metadata$grupo),
+  is.numeric(conteos),
+  all(is.finite(conteos)),
+  all(conteos >= 0),
+  all(conteos == floor(conteos))
+)
+
 storage.mode(conteos) <- "integer"
 
 # El orden debe coincidir: columna de conteos i = fila de metadatos i.
@@ -55,6 +82,7 @@ metadata <- metadata |>
   mutate(grupo = factor(grupo, levels = c("Obeso_sin_MASLD", "NASH_MASH"))) |>
   column_to_rownames("sample_id")
 
+stopifnot(!anyNA(metadata$grupo))
 stopifnot(identical(colnames(conteos), rownames(metadata)))
 
 # ----------------------------------------------------------------------------
@@ -159,11 +187,22 @@ res_shrink <- lfcShrink(dds, coef = coeficiente, type = "normal")
 
 res <- as.data.frame(res_crudo) |>
   rownames_to_column("ensembl_id") |>
-  select(ensembl_id, baseMean, lfcSE, stat, pvalue, padj) |>
+  select(
+    ensembl_id,
+    baseMean,
+    lfcSE_sin_contraccion = lfcSE,
+    stat,
+    pvalue,
+    padj
+  ) |>
   left_join(
     as.data.frame(res_shrink) |>
       rownames_to_column("ensembl_id") |>
-      select(ensembl_id, log2FoldChange),
+      select(
+        ensembl_id,
+        log2FoldChange,
+        lfcSE_contraido = lfcSE
+      ),
     by = "ensembl_id"
   )
 
@@ -186,10 +225,15 @@ res <- res |>
   ) |>
   arrange(padj)
 
-write_csv(res, file.path(carpeta_resultados, "resultados_DESeq2_todos_los_genes.csv"))
-write_csv(
+write.csv(
+  res,
+  file.path(carpeta_resultados, "resultados_DESeq2_todos_los_genes.csv"),
+  row.names = FALSE
+)
+write.csv(
   filter(res, categoria != "No cumple ambos cortes"),
-  file.path(carpeta_resultados, "resultados_DESeq2_significativos.csv")
+  file.path(carpeta_resultados, "resultados_DESeq2_significativos.csv"),
+  row.names = FALSE
 )
 
 # ----------------------------------------------------------------------------
@@ -256,12 +300,13 @@ ggsave(
 # ----------------------------------------------------------------------------
 
 genes_heatmap <- res |>
-  filter(!is.na(padj), padj < padj_corte) |>
+  filter(categoria != "No cumple ambos cortes") |>
+  arrange(padj) |>
   slice_head(n = n_heatmap) |>
   pull(ensembl_id)
 
 if (length(genes_heatmap) < 2) {
-  stop("Hay menos de dos genes con padj significativo; no se puede construir el heatmap.")
+  stop("Hay menos de dos genes que cumplen ambos cortes; no se puede construir el heatmap.")
 }
 
 matriz_heatmap <- assay(vsd)[genes_heatmap, , drop = FALSE]
@@ -350,7 +395,11 @@ resumen <- tibble(
   )
 )
 
-write_csv(resumen, file.path(carpeta_resultados, "resumen_analisis.csv"))
+write.csv(
+  resumen,
+  file.path(carpeta_resultados, "resumen_analisis.csv"),
+  row.names = FALSE
+)
 writeLines(capture.output(sessionInfo()), file.path(carpeta_resultados, "sessionInfo.txt"))
 
 print(resumen)

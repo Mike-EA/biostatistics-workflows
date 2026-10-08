@@ -48,6 +48,22 @@ Al finalizar podrás:
 
 > **Pregunta biológica:** ¿qué cambios de expresión génica se asocian con NASH/MASH cuando la referencia son personas con obesidad e histología hepática normal?
 
+La palabra **asocian** es importante. Este es un estudio observacional de tejido humano: podemos detectar diferencias reproducibles entre grupos, pero el análisis por sí solo no demuestra que un gen sea la causa de la enfermedad.
+
+## Del problema biológico al análisis estadístico
+
+El flujo completo puede pensarse como una cadena de preguntas:
+
+1. **¿Qué representa cada muestra?** Una biopsia hepática de una persona; por ello, la réplica biológica es la persona y no cada lectura de secuenciación.
+2. **¿Qué comparación haremos?** NASH/MASH frente a obesidad con histología hepática normal.
+3. **¿Los datos están organizados correctamente?** Cada columna de conteos debe corresponder exactamente a una fila de los metadatos.
+4. **¿Qué genes contienen información suficiente?** Retiraremos genes con conteos demasiado escasos para estimar su variación con estabilidad.
+5. **¿Qué cambio observamos y cuánta incertidumbre tiene?** DESeq2 estimará, para cada gen, una magnitud de cambio y una prueba estadística.
+6. **¿Cómo controlamos miles de pruebas simultáneas?** Usaremos el valor p ajustado por el procedimiento de Benjamini-Hochberg.
+7. **¿Cómo comunicamos el resultado?** El volcano plot resume magnitud y evidencia; el heatmap muestra cómo se distribuyen los genes seleccionados entre las biopsias.
+
+Cada objeto que construiremos responde a una de estas preguntas. Conviene no avanzar si no puedes explicar qué representan sus filas, sus columnas y sus valores.
+
 # Antes de comenzar
 
 ## Estructura esperada
@@ -93,6 +109,14 @@ source("scripts/00_instalar_dependencias.R")
 
 La instalación sólo se necesita una vez. La siguiente celda comprueba que las bibliotecas estén disponibles.
 
+Los paquetes tienen funciones diferentes:
+
+- `DESeq2` ajusta el modelo de conteos y realiza la prueba de expresión diferencial;
+- `dplyr`, `tibble` y `ggplot2`, cargados mediante `tidyverse`, ayudan a organizar tablas y construir figuras;
+- `AnnotationDbi` y `org.Hs.eg.db` traducen identificadores Ensembl a símbolos génicos humanos;
+- `EnhancedVolcano` y `pheatmap` producen las dos visualizaciones principales;
+- `ggrepel` reduce el solapamiento de etiquetas en la PCA.
+
 ```{r cargar-paquetes}
 paquetes <- c(
   "DESeq2",
@@ -127,21 +151,77 @@ suppressPackageStartupMessages({
 })
 ```
 
+## Cómo leer el código de esta guía
+
+Antes de analizar los datos, revisemos cuatro símbolos que aparecerán repetidamente:
+
+- `<-` **asigna** un valor a un objeto. Por ejemplo, `x <- 5` guarda el número 5 bajo el nombre `x`.
+- `$` selecciona una columna por su nombre. `metadata$grupo` significa “la columna `grupo` del objeto `metadata`”.
+- `[filas, columnas]` selecciona una parte de una tabla o matriz. El espacio antes de la coma se refiere a filas y el espacio después, a columnas.
+- `|>` conecta operaciones en orden y se lee como “entonces”.
+
+### ¿`|>` es equivalente a `%>%`?
+
+En las operaciones habituales de esta guía, **producen el mismo resultado**:
+
+```r
+# Pipe nativo de R (disponible desde R 4.1)
+metadata |>
+  count(grupo)
+
+# Pipe de magrittr, cargado con tidyverse
+metadata %>%
+  count(grupo)
+```
+
+Ambos toman el objeto de la izquierda y lo colocan, de manera predeterminada, como primer argumento de la función siguiente. Así, las dos expresiones anteriores son una forma legible de escribir `count(metadata, grupo)`.
+
+No son idénticos en todos los casos. `%>%` pertenece al paquete `magrittr`, necesita que dicho paquete —o `tidyverse`— esté cargado y permite construcciones especiales con el marcador `.`. `|>` forma parte de R base, no requiere paquetes y tiene reglas algo más estrictas. Usaremos `|>` porque las cadenas de esta práctica sólo necesitan el comportamiento común a ambos. Para un flujo sencillo, puedes traducir uno por otro sin cambiar la lógica.
+
 ## Parámetros del análisis
 
-Reunir las decisiones al inicio evita cambiar un umbral en una figura sin actualizar el resto del análisis.
+Reunir las decisiones al inicio evita cambiar un umbral en una figura sin actualizar el resto del análisis. Los objetos de este chunk funcionan como un pequeño panel de control: si más adelante se cambia una decisión justificada, todas las secciones que la utilizan se actualizan juntas.
 
 ```{r parametros}
+# Rutas relativas de los dos archivos de entrada. Son relativas al proyecto
+# expresion_diferencial_mash.Rproj, por lo que funcionan en otras computadoras.
 archivo_conteos <- "datos/conteos_GSE126848_MASH_vs_obesidad.csv"
 archivo_metadata <- "datos/metadata_GSE126848_MASH_vs_obesidad.csv"
+
+# Nombre de la carpeta donde se guardarán tablas y figuras. Este objeto no
+# contiene los resultados: únicamente guarda el texto "resultados" para no
+# repetir la misma ruta cada vez que exportamos un archivo.
 carpeta_resultados <- "resultados"
 
+# Valor p ajustado máximo para considerar evidencia estadística. Con 0.05
+# controlamos en 5% la proporción esperada de falsos descubrimientos entre
+# los genes seleccionados, bajo los supuestos del procedimiento.
 padj_corte <- 0.05
+
+# Magnitud mínima del cambio en escala log2. Un valor absoluto de 1 equivale
+# a un cambio de al menos 2 veces: +1 = el doble; -1 = la mitad.
 lfc_corte <- 1
+
+# Número máximo de genes que mostraremos en el heatmap. Limitarlo mantiene la
+# figura legible; no modifica el modelo ni el conjunto completo de resultados.
 n_heatmap <- 30
 
+# Crea la carpeta si todavía no existe. showWarnings = FALSE evita un aviso si
+# ya existe y recursive = TRUE permitiría crear carpetas intermedias.
 dir.create(carpeta_resultados, showWarnings = FALSE, recursive = TRUE)
 ```
+
+Por ejemplo, cuando más adelante escribamos
+`file.path(carpeta_resultados, "01_PCA.png")`, R construirá la ruta
+`resultados/01_PCA.png`. Centralizarla en un objeto evita llenar la carpeta principal con figuras y permite cambiar el destino de todas las salidas modificando una sola línea.
+
+Los tres parámetros analíticos cumplen funciones diferentes:
+
+- `padj_corte` decide cuánta evidencia estadística exigimos;
+- `lfc_corte` decide qué magnitud mínima consideramos biológicamente relevante para esta práctica;
+- `n_heatmap` sólo controla cuántas filas se muestran en una figura.
+
+Por tanto, aumentar `n_heatmap` no crea nuevos genes diferenciales, mientras que cambiar `padj_corte` o `lfc_corte` sí cambia la clasificación de los resultados.
 
 # Contexto del dataset
 
@@ -154,16 +234,27 @@ En esta práctica utilizamos:
 
 Comparar estos grupos ayuda a enfocar la pregunta en la enfermedad hepática más allá de la obesidad. Sin embargo, no elimina todos los posibles factores de confusión.
 
+La elección del grupo de referencia es parte de la pregunta científica. Si comparáramos MASH contra personas delgadas y sanas, mezclaríamos diferencias asociadas con obesidad y diferencias asociadas con lesión hepática. Usar personas con obesidad e histología normal intenta reducir ese problema. Aun así, edad, sexo, medicamentos, composición celular del tejido y otras variables podrían diferir entre grupos.
+
+En esta guía ajustaremos el modelo sencillo `~ grupo` para que la lógica principal sea visible. En un estudio confirmatorio se debe revisar el protocolo y decidir **antes** del análisis si existen covariables justificadas que deban incluirse. Agregar variables sin comprender el diseño no garantiza eliminar confusión y puede introducir otros problemas.
+
 Fuente: [NCBI GEO GSE126848](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE126848). Publicación: [Suppli et al., 2019](https://doi.org/10.1152/ajpgi.00358.2018).
 
 # Importación de los datos
 
 ## Metadatos
 
-Cada fila representa una biopsia. Las variables describen la muestra y determinan el diseño experimental.
+Cada fila representa una biopsia y cada columna describe una característica de esa muestra. La columna `grupo` contiene la variable explicativa que utilizaremos en el modelo. Antes de mirar genes individuales necesitamos saber cuántas réplicas biológicas hay, qué grupos existen y si faltan datos.
+
+Usaremos `read.csv()`, una función incluida en R base. Esto significa que no se necesita un paquete adicional para leer los archivos.
 
 ```{r importar-metadata}
-metadata <- readr::read_csv(archivo_metadata, show_col_types = FALSE)
+metadata <- read.csv(
+  archivo_metadata,
+  stringsAsFactors = FALSE,
+  check.names = FALSE,
+  colClasses = c(sample_id = "character")
+)
 
 dim(metadata)
 names(metadata)
@@ -173,6 +264,19 @@ knitr::kable(
 )
 ```
 
+¿Qué hace cada argumento?
+
+- `archivo_metadata` indica qué archivo debe abrirse;
+- `stringsAsFactors = FALSE` conserva el texto como texto y evita conversiones automáticas a factores;
+- `check.names = FALSE` conserva literalmente los encabezados originales;
+- `colClasses = c(sample_id = "character")` obliga a leer `sample_id` como texto. Esto es esencial porque identificadores como `0872` perderían el cero inicial si R los interpretara como números.
+
+Las funciones de inspección no modifican los datos:
+
+- `dim(metadata)` devuelve `filas × columnas`; esperamos 28 filas porque hay 28 biopsias;
+- `names(metadata)` permite verificar los nombres disponibles;
+- `head(metadata, 6)` muestra las primeras seis filas para detectar problemas evidentes de importación.
+
 Contemos las réplicas biológicas:
 
 ```{r contar-grupos}
@@ -181,12 +285,31 @@ metadata |>
   knitr::kable(caption = "Número de biopsias por grupo")
 ```
 
+La tubería se lee así: “toma `metadata`, cuenta cuántas filas pertenecen a cada `grupo` y presenta el resultado como tabla”. Deben aparecer 12 biopsias del grupo de referencia y 16 del grupo NASH/MASH. Estas son réplicas biológicas independientes; tener millones de lecturas por muestra no sustituye la necesidad de contar con varias personas por grupo.
+
+También revisaremos la distribución del sexo, porque una variable clínica asociada con el grupo puede influir en la expresión:
+
+```{r revisar-sexo}
+metadata |>
+  count(grupo, sexo, name = "numero_de_muestras") |>
+  knitr::kable(caption = "Distribución del sexo en cada grupo")
+```
+
+Las 12 personas del grupo `Obeso_sin_MASLD` están registradas como hombres; el grupo `NASH_MASH` contiene 12 hombres y 4 mujeres. Esto crea un desequilibrio: el modelo sencillo no puede garantizar que toda diferencia observada se deba exclusivamente al estado hepático. Incluir `sexo` mecánicamente tampoco resuelve por completo el diseño, porque no hay mujeres en el grupo de referencia y la información para separar ambos efectos es limitada. Conservaremos `~ grupo` con fines didácticos y declararemos esta limitación al interpretar.
+
 ## Matriz de conteos
 
 Cada fila representa un gen y cada columna una muestra. Los valores son conteos enteros crudos. DESeq2 no debe recibir TPM, FPKM, porcentajes ni z-scores como sustitutos de estos conteos.
 
+Los conteos indican cuántos fragmentos de secuenciación se asignaron a cada gen en cada biblioteca. No pueden compararse directamente entre muestras sin normalización, porque una biblioteca más profunda tiende a producir más conteos para casi todos los genes. DESeq2 abordará ese problema dentro del modelo.
+
 ```{r importar-conteos}
-conteos_df <- readr::read_csv(archivo_conteos, show_col_types = FALSE)
+conteos_df <- read.csv(
+  archivo_conteos,
+  stringsAsFactors = FALSE,
+  check.names = FALSE,
+  colClasses = c(ensembl_id = "character")
+)
 
 dim(conteos_df)
 names(conteos_df)[1:6]
@@ -195,9 +318,15 @@ conteos_df[1:5, 1:6] |>
   knitr::kable(caption = "Fragmento de la matriz de conteos")
 ```
 
+Aquí `check.names = FALSE` tiene otra función decisiva: impide que R cambie encabezados como `0872` a `X0872`. Los encabezados de las columnas deben coincidir exactamente con `sample_id` para poder vincular cada perfil molecular con su grupo biológico.
+
+Esperamos 19,786 filas —una por identificador Ensembl— y 29 columnas: una columna de identificadores y 28 columnas de muestras. Todavía mantenemos `ensembl_id` como columna para poder comprobar duplicados antes de convertirla en nombres de fila.
+
 # Verificación de integridad
 
 Esta etapa evita uno de los errores más peligrosos del análisis: asignar a una columna de conteos el grupo de otra persona.
+
+DESeq2 empareja la primera columna de la matriz con la primera fila de los metadatos, la segunda con la segunda, y así sucesivamente. No intenta deducir si los nombres se corresponden. Por eso verificaremos tanto la presencia de columnas indispensables como la unicidad y el orden de los identificadores.
 
 ```{r validar-datos}
 stopifnot(
@@ -211,6 +340,16 @@ conteos <- conteos_df |>
   column_to_rownames("ensembl_id") |>
   as.matrix()
 
+# Antes de convertir, comprobamos que la matriz contiene conteos válidos.
+stopifnot(
+  setequal(colnames(conteos), metadata$sample_id),
+  !anyNA(metadata$grupo),
+  is.numeric(conteos),
+  all(is.finite(conteos)),
+  all(conteos >= 0),
+  all(conteos == floor(conteos))
+)
+
 storage.mode(conteos) <- "integer"
 
 metadata <- metadata |>
@@ -223,17 +362,43 @@ metadata <- metadata |>
   ) |>
   column_to_rownames("sample_id")
 
+stopifnot(!anyNA(metadata$grupo))
+
 identical(colnames(conteos), rownames(metadata))
 stopifnot(identical(colnames(conteos), rownames(metadata)))
 ```
 
-El resultado debe ser `TRUE`.
+El primer `stopifnot()` detiene la ejecución si:
+
+- falta la columna de identificadores génicos;
+- faltan `sample_id` o `grupo`;
+- un gen aparece más de una vez;
+- una muestra aparece más de una vez.
+
+El segundo comprueba que ambos archivos contienen el mismo conjunto de muestras, que `grupo` no tiene datos ausentes y que todos los conteos son numéricos, finitos, no negativos y enteros. Validamos esto **antes** de cambiar el modo de almacenamiento; convertir números decimales directamente a enteros podría ocultar un archivo incorrecto.
+
+Después ocurren cuatro transformaciones:
+
+1. `column_to_rownames("ensembl_id")` mueve los identificadores a los nombres de fila, porque DESeq2 espera genes en las filas de una matriz;
+2. `as.matrix()` convierte la tabla en una matriz, estructura requerida por `DESeqDataSetFromMatrix()`;
+3. `storage.mode(conteos) <- "integer"` almacena como enteros los valores que acabamos de validar;
+4. `match()` reordena los metadatos para que sigan exactamente el orden de las columnas de la matriz.
+
+Al crear el factor, `Obeso_sin_MASLD` se coloca primero y se convierte en la referencia. Esto hace que los cambios posteriores se interpreten como NASH/MASH **respecto a** obesidad sin MASLD.
+
+`identical()` debe devolver `TRUE`. La siguiente línea repite la comparación dentro de `stopifnot()` para que el documento se detenga, en lugar de continuar silenciosamente, si existe una discrepancia.
 
 > **Reflexión:** el código podría ejecutarse aunque el orden fuera incorrecto. ¿Por qué el resultado científico sería falso?
+
+La respuesta esperada es que los conteos de una persona recibirían las características clínicas de otra. El modelo calcularía una comparación numérica, pero esa comparación ya no representaría los grupos biológicos reales.
 
 # Control de calidad inicial
 
 El tamaño de biblioteca es la suma de conteos asignados en una muestra. Una biblioteca grande no significa que todos sus genes tengan mayor expresión biológica. DESeq2 estimará factores de tamaño para hacer comparables las muestras.
+
+**Pregunta de esta etapa:** ¿alguna biblioteca tiene una profundidad de secuenciación llamativamente distinta de las demás?
+
+`colSums(conteos)` suma todos los genes de cada columna y produce un total por biopsia. Este gráfico es una revisión técnica inicial: una biblioteca extremadamente pequeña podría indicar baja eficiencia de secuenciación o poca cantidad/calidad de ARN. No utilizaremos un corte automático ni eliminaremos muestras sólo porque su barra sea diferente; cualquier exclusión requiere revisar el protocolo, otras métricas de calidad y una justificación previa.
 
 ```{r bibliotecas}
 tamanos_biblioteca <- tibble(
@@ -281,6 +446,10 @@ ggsave(
 )
 ```
 
+El objeto `tamanos_biblioteca` contiene una fila por muestra. `ggplot()` recibe esa tabla y las funciones añadidas con `+` incorporan capas: barras, orientación, colores, etiquetas y tema. Finalmente, `ggsave()` guarda exactamente el gráfico `p_bibliotecas` dentro de la ruta construida con `file.path()`.
+
+Este total **no es todavía la normalización**. Los factores de tamaño de DESeq2 utilizan una estrategia robusta basada en razones y no son simplemente el número total de lecturas. Esto reduce la influencia de unos pocos genes extremadamente abundantes que podrían cambiar la composición de una biblioteca.
+
 Preguntas para revisar antes de continuar:
 
 - ¿hay una muestra con muchos menos conteos que las demás?;
@@ -294,6 +463,8 @@ Los genes casi ausentes aportan poca información y aumentan el número de prueb
 
 Este umbral es una decisión didáctica, no una constante universal.
 
+**Pregunta de esta etapa:** ¿para qué genes tenemos observaciones suficientes como para intentar estimar una diferencia entre personas?
+
 ```{r filtrar-genes}
 mantener <- rowSums(conteos >= 10) >= 5
 conteos_filtrados <- conteos[mantener, ]
@@ -306,9 +477,23 @@ resumen_filtro <- tibble(
 knitr::kable(resumen_filtro, caption = "Efecto del filtro de baja expresión")
 ```
 
+La primera línea puede descomponerse en tres operaciones:
+
+1. `conteos >= 10` genera una matriz de valores `TRUE/FALSE` que indica si cada celda alcanza 10 conteos;
+2. `rowSums(conteos >= 10)` cuenta en cuántas muestras se cumple esa condición para cada gen —R trata `TRUE` como 1 y `FALSE` como 0—;
+3. `>= 5` produce el vector lógico `mantener`, que vale `TRUE` para los genes observados con al menos 10 conteos en cinco o más biopsias.
+
+`conteos[mantener, ]` conserva las filas seleccionadas y todas las columnas. El filtro reduce pruebas con información muy limitada, puede mejorar la potencia y evita interpretar estimaciones extremadamente inestables. Se define usando sólo abundancia, antes de conocer qué genes favorecen a cada grupo; no estamos seleccionando genes porque ya dieron el resultado deseado.
+
+En otro dataset el umbral debe adaptarse a la profundidad, al número de réplicas y al objetivo. Lo transferible no es memorizar “10 en 5”, sino declarar una regla razonable y documentarla.
+
 # Modelo de expresión diferencial
 
 DESeq2 modela los conteos de cada gen mediante una distribución binomial negativa. El diseño `~ grupo` pregunta si la expresión cambia sistemáticamente entre los dos grupos.
+
+**Pregunta de esta etapa:** después de considerar diferencias de profundidad y la variabilidad entre personas, ¿la abundancia esperada de cada gen difiere entre los grupos?
+
+Los conteos de RNA-seq no suelen ajustarse bien a una distribución de Poisson, porque la variación entre biopsias biológicas suele ser mayor que la media. La distribución binomial negativa incorpora un parámetro de **dispersión** para representar esa variación adicional. DESeq2 ajusta un modelo separado por gen, pero comparte información entre genes para estabilizar la estimación de dispersión cuando el número de réplicas es limitado.
 
 ```{r ajustar-deseq2}
 dds <- DESeqDataSetFromMatrix(
@@ -320,15 +505,30 @@ dds <- DESeqDataSetFromMatrix(
 dds <- DESeq(dds)
 ```
 
+`DESeqDataSetFromMatrix()` reúne tres componentes que deben ser coherentes:
+
+- `countData = conteos_filtrados`: matriz de genes por muestras;
+- `colData = metadata`: información de las mismas muestras, en el mismo orden;
+- `design = ~ grupo`: fórmula que indica qué variable explicará las diferencias.
+
+El objeto `dds` conserva los conteos, los metadatos, el diseño y, después de `DESeq(dds)`, todas las estimaciones del modelo. La fórmula `~ grupo` contiene un único predictor: no ajusta por sexo, edad u otras covariables.
+
 Durante esta etapa DESeq2 estima:
 
-- factores de tamaño, relacionados con la profundidad de cada biblioteca;
-- dispersión, que representa variación biológica entre réplicas;
-- un efecto de grupo y su incertidumbre para cada gen.
+- **factores de tamaño**, que corrigen diferencias sistemáticas de profundidad/composición entre bibliotecas;
+- **dispersión**, que representa cuánto varían las personas más allá de lo esperado por el muestreo de lecturas;
+- **coeficientes del modelo**, incluido un efecto de grupo para cada gen;
+- una prueba de Wald, que pregunta si ese efecto es compatible con cero teniendo en cuenta su incertidumbre.
+
+Un valor p pequeño indica que los datos serían poco compatibles con “ninguna diferencia de grupo” bajo los supuestos del modelo. Todavía no hemos corregido el problema de evaluar miles de genes; lo haremos al extraer los resultados.
 
 # Exploración global con PCA
 
 Para la PCA y el heatmap utilizaremos la transformación estabilizadora de varianza, `VST`. El test de expresión diferencial sigue utilizando los conteos crudos.
+
+**Pregunta de esta etapa:** cuando resumimos la variación de miles de genes, ¿las biopsias muestran estructura por grupo, heterogeneidad interna o muestras atípicas?
+
+En conteos crudos, los genes muy abundantes tienden a presentar una varianza mayor y pueden dominar una medida de distancia. `vst()` reduce la dependencia entre media y varianza para hacer más comparables los patrones globales. `blind = FALSE` permite utilizar la tendencia de dispersión estimada con el diseño; no fuerza a las muestras de un grupo a quedar juntas.
 
 ```{r pca}
 vsd <- vst(dds, blind = FALSE)
@@ -368,9 +568,20 @@ ggsave(
 )
 ```
 
+`assay(vsd)` contendrá la matriz transformada. `plotPCA()` usa los genes con mayor variación para calcular componentes principales:
+
+- cada punto es una biopsia, no un gen;
+- dos puntos cercanos tienen perfiles globales relativamente parecidos;
+- PC1 y PC2 son combinaciones de muchos genes, no vías biológicas individuales;
+- el porcentaje de cada eje indica qué fracción de la variación global resume ese componente.
+
 > **Interpretación:** puntos cercanos tienen perfiles globales parecidos. La PCA permite explorar separación, heterogeneidad y muestras alejadas, pero no prueba significancia para un gen individual.
 
+Si los grupos se separan, esto sugiere que el estado hepático está asociado con una parte importante del transcriptoma, pero no demuestra causalidad. Si se solapan, todavía puede haber genes individuales diferenciales. Una muestra alejada tampoco debe eliminarse automáticamente: primero se investigan su calidad técnica y sus características clínicas.
+
 # Definición del contraste
+
+**Pregunta de esta etapa:** ¿en qué dirección cambia cada gen cuando pasamos del grupo de referencia a NASH/MASH, y qué tan compatible es ese cambio con la variación entre biopsias?
 
 El contraste se interpreta como:
 
@@ -383,7 +594,9 @@ Por tanto:
 - `log2FoldChange > 0`: mayor expresión estimada en NASH/MASH;
 - `log2FoldChange < 0`: menor expresión estimada en NASH/MASH;
 - `log2FoldChange = 1`: expresión dos veces mayor;
-- `log2FoldChange = -1`: expresión equivalente a la mitad.
+- `log2FoldChange = -1`: expresión equivalente a la mitad;
+- `log2FoldChange = 2`: expresión cuatro veces mayor;
+- `log2FoldChange = -2`: expresión equivalente a una cuarta parte.
 
 ```{r calcular-contraste}
 res_crudo <- results(
@@ -394,6 +607,16 @@ res_crudo <- results(
 
 resultsNames(dds)
 ```
+
+El vector del contraste tiene tres elementos:
+
+```r
+c("variable", "numerador", "denominador")
+```
+
+Por ello, `c("grupo", "NASH_MASH", "Obeso_sin_MASLD")` estima conceptualmente `NASH_MASH / Obeso_sin_MASLD`. Invertir numerador y denominador invertiría todos los signos del `log2FoldChange`, aunque la evidencia estadística fuese la misma.
+
+El argumento `alpha = padj_corte` informa a DESeq2 el nivel de interés para su filtrado independiente y para resumir resultados. No convierte automáticamente en relevantes los genes con efecto minúsculo; por eso aplicaremos además `lfc_corte`.
 
 Aplicaremos contracción del `log2FoldChange` para reducir magnitudes inestables en genes con poca información.
 
@@ -413,18 +636,35 @@ res_shrink <- lfcShrink(
 )
 ```
 
+`resultsNames(dds)` muestra los coeficientes disponibles y `grep()` selecciona el que representa exactamente nuestra comparación. `stopifnot()` evita continuar si no se encontró uno —o si el patrón encontró más de uno—.
+
+La contracción, o *shrinkage*, acerca hacia cero las estimaciones menos precisas y afecta poco a las respaldadas por abundante información. Su objetivo es obtener tamaños de efecto más estables para ordenar, clasificar y visualizar genes. **No vuelve significativo un gen ni recalcula la prueba de hipótesis.** Conservaremos `pvalue` y `padj` de `res_crudo`, y utilizaremos el `log2FoldChange` contraído de `res_shrink` como estimación de magnitud.
+
 # Anotación y clasificación de genes
 
 La matriz utiliza identificadores Ensembl. Los traduciremos a símbolos génicos humanos con `org.Hs.eg.db`. Cuando no exista una correspondencia, conservaremos el identificador Ensembl.
 
+**Pregunta de esta etapa:** ¿cómo reunimos, en una tabla interpretable, la magnitud del cambio, su incertidumbre, la evidencia estadística y un nombre reconocible para cada gen?
+
 ```{r anotar-resultados}
 res <- as.data.frame(res_crudo) |>
   rownames_to_column("ensembl_id") |>
-  select(ensembl_id, baseMean, lfcSE, stat, pvalue, padj) |>
+  select(
+    ensembl_id,
+    baseMean,
+    lfcSE_sin_contraccion = lfcSE,
+    stat,
+    pvalue,
+    padj
+  ) |>
   left_join(
     as.data.frame(res_shrink) |>
       rownames_to_column("ensembl_id") |>
-      select(ensembl_id, log2FoldChange),
+      select(
+        ensembl_id,
+        log2FoldChange,
+        lfcSE_contraido = lfcSE
+      ),
     by = "ensembl_id"
   )
 
@@ -450,16 +690,38 @@ res <- res |>
   ) |>
   arrange(padj)
 
-write_csv(
+write.csv(
   res,
-  file.path(carpeta_resultados, "resultados_DESeq2_todos_los_genes.csv")
+  file.path(carpeta_resultados, "resultados_DESeq2_todos_los_genes.csv"),
+  row.names = FALSE
 )
 
-write_csv(
+write.csv(
   filter(res, categoria != "No cumple ambos cortes"),
-  file.path(carpeta_resultados, "resultados_DESeq2_significativos.csv")
+  file.path(carpeta_resultados, "resultados_DESeq2_significativos.csv"),
+  row.names = FALSE
 )
 ```
+
+La primera tubería convierte las filas del resultado en una tabla y une dos procedencias de manera explícita:
+
+- `baseMean`, `stat`, `pvalue`, `padj` y `lfcSE_sin_contraccion` provienen del resultado original usado en la prueba;
+- `log2FoldChange` y `lfcSE_contraido` provienen de la estimación contraída usada para interpretar la magnitud.
+
+Nombrar ambos errores estándar evita asumir que `lfcSE_sin_contraccion` describe exactamente el `log2FoldChange` contraído que aparece a su lado.
+
+Las columnas principales significan:
+
+- `baseMean`: media de conteos normalizados del gen entre todas las muestras;
+- `log2FoldChange`: tamaño y dirección estimados del cambio, después de contracción;
+- `lfcSE_contraido`: incertidumbre asociada con la estimación contraída;
+- `stat`: estadístico de Wald del resultado original;
+- `pvalue`: evidencia para ese gen antes de corregir comparaciones múltiples;
+- `padj`: valor p ajustado para controlar la tasa de falsos descubrimientos.
+
+`mapIds()` consulta la anotación humana. La relación entre un identificador Ensembl y un símbolo no siempre es uno a uno; `multiVals = "first"` conserva una sola coincidencia para simplificar la práctica. Una ausencia de símbolo no significa ausencia de expresión, por eso usamos el Ensembl como respaldo.
+
+`case_when()` combina los dos criterios y `arrange(padj)` ordena desde la evidencia estadística más fuerte. Finalmente, `write.csv(..., row.names = FALSE)` produce una tabla completa y otra con los genes que cumplen ambos cortes, sin añadir una columna artificial de números de fila.
 
 ## `pvalue` y `padj`
 
@@ -486,7 +748,13 @@ res |>
   )
 ```
 
+La primera tabla comprueba cuántos genes quedan en cada categoría. La segunda comienza con `res`, conserva sólo los que cumplen ambos cortes, selecciona las columnas necesarias, toma las primeras 15 filas —la tabla ya estaba ordenada por `padj`— y las presenta con tres decimales. Esta vista sirve para inspección; el archivo exportado conserva todos los dígitos y todas las filas.
+
 Un `padj < 0.05` no significa que el gen tenga 95% de probabilidad de ser verdadero. Es una regla que controla la proporción esperada de falsos descubrimientos entre los hallazgos seleccionados.
+
+Más precisamente, el `pvalue` es la probabilidad de observar un resultado al menos tan extremo como éste **si el efecto real fuese cero y se cumplieran los supuestos del modelo**. No es la probabilidad de que la hipótesis nula sea verdadera. El procedimiento de Benjamini-Hochberg ordena los valores p de todos los genes y ajusta el criterio para controlar la tasa esperada de falsos descubrimientos.
+
+Algunos `padj` pueden ser `NA` si un gen no aporta información suficiente al filtrado independiente o si DESeq2 detecta un problema que impide evaluarlo de manera fiable. No deben convertirse en cero ni clasificarse como significativos.
 
 # Volcano plot
 
@@ -494,6 +762,10 @@ El volcano plot combina dos dimensiones:
 
 - eje x: dirección y magnitud del cambio;
 - eje y: evidencia estadística, expresada como `-log10(padj)`.
+
+**Pregunta de esta etapa:** ¿qué genes combinan un cambio suficientemente grande con evidencia estadística suficientemente fuerte, y en qué dirección cambia su expresión?
+
+Cada punto representará un gen. Los cortes verticales corresponderán a `-lfc_corte` y `+lfc_corte`; el corte horizontal corresponderá a `padj_corte`. Usaremos el valor p **ajustado** en el eje vertical. Algunos volcano plots publicados usan el valor p sin ajustar, por lo que siempre se debe leer la etiqueta del eje antes de interpretar.
 
 ```{r volcano, fig.width=9, fig.height=7}
 res_volcano <- res |>
@@ -563,17 +835,40 @@ ggsave(
 )
 ```
 
+El chunk realiza estas operaciones:
+
+1. elimina genes sin `log2FoldChange` o `padj`, porque no pueden ubicarse en ambos ejes;
+2. `pmax(padj, .Machine$double.xmin)` sustituye un posible cero numérico por el menor número positivo representable. Así se evita que `-log10(0)` sea infinito;
+3. etiqueta hasta 15 genes entre los primeros resultados ordenados por `padj` que además cumplen ambos cortes;
+4. construye un vector de color para distinguir genes mayores, menores y no seleccionados;
+5. pasa la tabla y los umbrales a `EnhancedVolcano()`;
+6. exporta el mismo objeto gráfico en PNG —útil para pantalla— y PDF —vectorial y editable—.
+
+Una lectura sistemática del gráfico sería:
+
+- **derecha y arriba:** mayor expresión en MASH, efecto grande y evidencia fuerte;
+- **izquierda y arriba:** menor expresión en MASH, efecto grande y evidencia fuerte;
+- **arriba pero cerca de cero:** evidencia fuerte de un cambio pequeño que no supera el corte de magnitud;
+- **muy a la derecha o izquierda pero abajo:** cambio estimado grande, pero incertidumbre suficiente para no superar el corte estadístico.
+
+La altura no mide importancia biológica y la posición horizontal no mide certeza. El interés del volcano consiste precisamente en observar ambas dimensiones a la vez.
+
 > **Actividad:** selecciona dos genes etiquetados. ¿Su dirección concuerda con lo que esperabas a partir de la fisiopatología? Una coincidencia no demuestra causalidad.
+
+Para justificar una hipótesis, registra el símbolo, `log2FoldChange`, `padj`, dirección, posible función y una limitación. Evita elegir un gen sólo porque su nombre resulte familiar: el gráfico es un punto de partida para investigar, no una validación funcional.
 
 # Heatmap
 
 El heatmap responde una pregunta diferente: ¿cómo se distribuye el patrón de los genes seleccionados entre las biopsias?
 
-Seleccionaremos los 30 genes con menor `padj`. Después estandarizaremos cada fila. El color mostrará si una muestra se encuentra por encima o por debajo de la media de **ese mismo gen**.
+Seleccionaremos hasta `n_heatmap` genes que cumplan **ambos cortes**, ordenados por menor `padj`. Después estandarizaremos cada fila. El color mostrará si una muestra se encuentra por encima o por debajo de la media de **ese mismo gen**.
+
+**Pregunta de esta etapa:** ¿los genes diferenciales muestran un patrón coherente entre personas, o el promedio de grupo oculta heterogeneidad importante?
 
 ```{r preparar-heatmap}
 genes_heatmap <- res |>
-  filter(!is.na(padj), padj < padj_corte) |>
+  filter(categoria != "No cumple ambos cortes") |>
+  arrange(padj) |>
   slice_head(n = n_heatmap) |>
   pull(ensembl_id)
 
@@ -607,6 +902,21 @@ colores_anotacion <- list(
   )
 )
 ```
+
+El código se interpreta en cuatro pasos:
+
+1. `genes_heatmap` selecciona los identificadores de los genes diferenciales con mayor evidencia estadística, hasta el máximo definido por `n_heatmap`;
+2. `assay(vsd)[genes_heatmap, ]` extrae esos genes de la matriz VST. No usamos conteos crudos porque su varianza depende fuertemente de la abundancia;
+3. `match()` reemplaza identificadores Ensembl por símbolos cuando están disponibles, sin perder el orden de las filas;
+4. `t(scale(t(matriz_heatmap)))` calcula un z-score dentro de cada gen. La primera transposición coloca genes en columnas, `scale()` centra y divide por la desviación estándar, y la segunda devuelve genes a las filas.
+
+Conceptualmente, cada celda estandarizada es:
+
+```text
+(expresión de la muestra − media de ese gen) / desviación estándar de ese gen
+```
+
+Un valor cercano a `+2` indica que esa biopsia está aproximadamente dos desviaciones estándar por encima de la media de **ese gen**. La estandarización elimina diferencias de escala entre genes para enfatizar patrones relativos; no se utiliza para la prueba de DESeq2.
 
 ```{r heatmap, fig.width=10, fig.height=7.3}
 p_heatmap <- pheatmap(
@@ -644,7 +954,20 @@ grid::grid.draw(p_heatmap$gtable)
 dev.off()
 ```
 
+`pheatmap()` agrupa filas y columnas por semejanza de sus perfiles. Los dendrogramas se calculan a partir de los datos; el diagnóstico no se usa para obligar a las muestras a agruparse. La anotación superior permite comparar después los grupos obtenidos con la clasificación clínica.
+
+`silent = TRUE` guarda el heatmap como un objeto. `grid.draw()` lo muestra dentro del documento, y los dispositivos `png()` y `pdf()` permiten escribirlo en los dos formatos antes de cerrarlos con `dev.off()`.
+
 > **Importante:** un valor rojo de un gen no debe compararse con el rojo de otro como si fueran niveles absolutos. Cada fila tiene su propia media y desviación estándar.
+
+El clustering es descriptivo, no una prueba de clasificación. Además, seleccionamos los genes y visualizamos su separación usando las mismas muestras; por tanto, una separación clara no constituye validación independiente ni permite afirmar que el heatmap predecirá MASH en pacientes nuevos.
+
+Para leerlo biológicamente, pregunta:
+
+- ¿las columnas forman grupos homogéneos o existen biopsias con patrones intermedios?;
+- ¿los genes mayores en MASH forman módulos visuales coherentes?;
+- ¿algún patrón podría reflejar inflamación, matriz extracelular, estrés celular o metabolismo?;
+- ¿la señal podría originarse por distinta proporción de hepatocitos, macrófagos o células estrelladas?
 
 # Interpretación biológica responsable
 
@@ -657,6 +980,19 @@ Un cambio de ARN en tejido hepático total puede originarse por:
 
 Por tanto, el resultado permite hablar de **asociación transcriptómica**, pero no demuestra por sí solo actividad proteica, flujo metabólico ni causalidad.
 
+En MASH, algunos resultados podrían relacionarse con procesos como inflamación, reclutamiento inmunitario, estrés celular, metabolismo lipídico, función mitocondrial, activación de células estrelladas o depósito de matriz extracelular. Sin embargo, un gen aislado no demuestra que una vía completa esté activa. Para sostener afirmaciones a nivel de proceso se necesitaría analizar conjuntos de genes —por ejemplo, mediante enriquecimiento funcional— y contrastarlos con conocimiento independiente.
+
+Una conclusión bien construida separa cuatro elementos:
+
+1. **Observación:** qué muestran los datos, incluyendo dirección, magnitud y evidencia;
+2. **Interpretación:** qué mecanismo biológico sería compatible con esa observación;
+3. **Alcance:** asociación en biopsia hepática humana para esta comparación concreta;
+4. **Limitación o prueba futura:** qué explicación alternativa existe y cómo podría evaluarse.
+
+Ejemplo de estructura —no de resultado que deba copiarse—:
+
+> El gen X presentó mayor expresión estimada en NASH/MASH que en obesidad sin MASLD (`log2FC = ...`, `padj = ...`). Este patrón es compatible con ..., pero el RNA-seq de tejido total no permite distinguir un cambio dentro de las células de un cambio en composición celular. Sería necesario ... para evaluar esa hipótesis.
+
 Completa estas preguntas:
 
 1. ¿Cuántos genes cumplen simultáneamente los dos cortes?
@@ -666,9 +1002,30 @@ Completa estas preguntas:
 5. ¿Qué experimento adicional ayudaría a evaluar causalidad?
 6. ¿Qué factor clínico podría confundir la comparación?
 
+En la sexta pregunta debe aparecer al menos el desequilibrio por sexo observado en los metadatos. También pueden existir factores no disponibles en esta selección, de modo que “no está en la tabla” no equivale a “no influye”.
+
+## Cómo transferir el flujo a otro dataset
+
+Para la siguiente actividad no conviene copiar sólo los comandos. Reconstruye la lógica:
+
+1. identifica la unidad experimental, los grupos y el contraste;
+2. determina qué archivo contiene conteos crudos y cuál contiene metadatos;
+3. importa sin alterar identificadores y verifica dimensiones, nombres y tipos;
+4. demuestra que las muestras coinciden y están en el mismo orden;
+5. define y justifica el filtro de baja expresión;
+6. escribe la fórmula del diseño y el contraste en palabras antes de ejecutarlos;
+7. distingue tamaño de efecto, incertidumbre y corrección por pruebas múltiples;
+8. genera figuras que respondan preguntas específicas, no sólo figuras estéticas;
+9. exporta tablas completas y documenta versiones;
+10. formula una conclusión con alcance y limitaciones.
+
+Los nombres de columnas, grupos y archivos cambiarán. Las preguntas anteriores son la parte verdaderamente reutilizable del workflow.
+
 # Exportación y reproducibilidad
 
 Los productos se guardaron en la carpeta `resultados/`:
+
+El objeto `carpeta_resultados` sigue conteniendo únicamente la cadena de texto `"resultados"`. Cada llamada a `file.path()` la combina con un nombre de archivo. Así, las salidas quedan organizadas sin depender de una ruta absoluta de una computadora específica.
 
 ```{r listar-resultados}
 resumen <- tibble(
@@ -690,7 +1047,11 @@ resumen <- tibble(
   )
 )
 
-write_csv(resumen, file.path(carpeta_resultados, "resumen_analisis.csv"))
+write.csv(
+  resumen,
+  file.path(carpeta_resultados, "resumen_analisis.csv"),
+  row.names = FALSE
+)
 writeLines(
   capture.output(sessionInfo()),
   file.path(carpeta_resultados, "sessionInfo.txt")
@@ -701,10 +1062,19 @@ knitr::kable(resumen, caption = "Resumen reproducible del análisis")
 list.files(carpeta_resultados)
 ```
 
+Esta sección guarda tres tipos de evidencia reproducible:
+
+- `resumen_analisis.csv` registra cantidades que permiten comprobar rápidamente que otra ejecución produjo el mismo flujo;
+- `sessionInfo.txt` registra versiones de R, sistema y paquetes, porque una versión diferente puede cambiar detalles del resultado;
+- `list.files()` confirma cuáles productos se crearon realmente.
+
+La carpeta está excluida de Git porque cada estudiante debe poder regenerarla a partir del código y los datos. Si al repetir el análisis no se obtienen los mismos archivos, el primer paso es revisar la consola y comprobar qué chunk se detuvo.
+
 # Lista de comprobación final
 
 - [ ] Abrí el proyecto correcto de RStudio.
 - [ ] Identifiqué la unidad experimental y el número de réplicas.
+- [ ] Puedo explicar por qué `read.csv()` usa `check.names = FALSE` en estos datos.
 - [ ] Verifiqué el orden de conteos y metadatos.
 - [ ] Declaré el filtro de baja expresión.
 - [ ] Escribí el contraste en palabras.
@@ -714,6 +1084,7 @@ list.files(carpeta_resultados)
 - [ ] Mi volcano plot muestra los umbrales y la dirección del contraste.
 - [ ] Mi heatmap utiliza datos transformados y z-score por gen.
 - [ ] Expliqué al menos una limitación biológica o técnica.
+- [ ] Puedo describir con palabras qué entra y qué sale de cada etapa.
 
 # Información de la sesión
 
