@@ -13,11 +13,11 @@ Esta carpeta contiene prácticas autocontenidas que pueden abrirse y ejecutarse 
 Cada módulo puede contener:
 
 ```text
+GUIA_*.Rmd      Guía ejecutable para estudiantes
+GUIA_*.html     Versión renderizada de la guía
+TAREA.md        Actividad autónoma y criterios de evaluación
 datos/          Datos de entrada y documentación de su procedencia
-scripts/        Código numerado en orden de ejecución
-resultados/     Salidas verificadas producidas por los scripts
-presentacion/   Material editable para impartir la clase
-docencia/       Guías, tareas, rúbricas y notas complementarias
+scripts/        Instalación y versión continua del análisis
 ```
 
-El `README.md` de cada módulo define el directorio de trabajo, el orden de ejecución, las dependencias y el alcance de la inferencia.
+Los resultados generados y los materiales exclusivos del docente se conservan localmente, no en el repositorio público. El `README.md` de cada módulo define el directorio de trabajo, el orden de ejecución, las dependencias y el alcance de la inferencia.

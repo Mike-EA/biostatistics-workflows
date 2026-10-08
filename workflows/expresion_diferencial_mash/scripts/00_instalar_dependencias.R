@@ -7,6 +7,7 @@ options(repos = c(CRAN = "https://cloud.r-project.org"))
 
 paquetes_cran <- c(
   "tidyverse",
+  "ggrepel",
   "pheatmap",
   "RColorBrewer"
 )
@@ -65,4 +66,7 @@ if (!all(estado$instalado)) {
   stop("Al menos un paquete no pudo instalarse. Revise los mensajes anteriores.")
 }
 
-message("\nInstalacion completa. Ya puede ejecutar 02_analisis_expresion_diferencial.R")
+message(
+  "\nInstalacion completa. Abra GUIA_PRACTICA_MASH.Rmd o ejecute ",
+  "scripts/01_analisis_expresion_diferencial.R"
+)

@@ -25,7 +25,7 @@ Comparar con personas con obesidad pero histología hepática normal ayuda a cen
 
 - `conteos_GSE126848_MASH_vs_obesidad.csv`: matriz de conteos crudos, genes en filas y muestras en columnas.
 - `metadata_GSE126848_MASH_vs_obesidad.csv`: grupo, sexo e identificadores GEO de las 28 muestras del contraste.
-- `metadata_GSE126848_57_muestras.csv`: metadatos de la cohorte completa, útil para extensiones.
-- `GSE126848_Gene_counts_raw.txt.gz` y `GSE126848_family.soft.gz`: archivos originales descargados de GEO para trazabilidad.
+
+Los dos archivos son una selección docente derivada de la matriz pública de conteos y de los metadatos de GSE126848. Los datos originales y la cohorte completa pueden recuperarse desde el registro GEO enlazado arriba.
 
 Los conteos crudos no deben transformarse a porcentajes, TPM ni z-scores antes de introducirlos en DESeq2. El heatmap sí usa una transformación estabilizadora de varianza y estandarización por gen, porque su objetivo es visualizar patrones relativos.

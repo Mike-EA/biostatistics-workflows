@@ -1,0 +1,730 @@
+---
+title: "Expresión diferencial en MASH con R"
+subtitle: "Guía práctica reproducible con DESeq2"
+lang: es
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    code_folding: show
+    df_print: paged
+    theme: flatly
+    highlight: tango
+    self_contained: true
+---
+
+```{r configuracion, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  fig.width = 8,
+  fig.height = 5.5,
+  dpi = 160,
+  out.width = "95%"
+)
+
+options(stringsAsFactors = FALSE)
+set.seed(2026)
+```
+
+# Propósito de la práctica
+
+En esta actividad analizaremos datos reales de RNA-seq obtenidos de biopsias de hígado humano. Compararemos muestras clasificadas originalmente como **NASH** con muestras de personas con obesidad, pero con histología hepática normal.
+
+El estudio se publicó antes de la adopción de la nomenclatura MASLD/MASH. Por ello, conservaremos `NASH` cuando describamos la clasificación original y utilizaremos `NASH_MASH` como etiqueta didáctica del grupo.
+
+Al finalizar podrás:
+
+1. distinguir una matriz de conteos de una tabla de metadatos;
+2. comprobar que las muestras se encuentran correctamente alineadas;
+3. filtrar genes con información insuficiente;
+4. ejecutar un contraste de expresión diferencial con DESeq2;
+5. interpretar `log2FoldChange`, `pvalue` y `padj`;
+6. construir un volcano plot y un heatmap;
+7. formular conclusiones que respeten las limitaciones del diseño.
+
+> **Pregunta biológica:** ¿qué cambios de expresión génica se asocian con NASH/MASH cuando la referencia son personas con obesidad e histología hepática normal?
+
+# Antes de comenzar
+
+## Estructura esperada
+
+Abre el archivo `expresion_diferencial_mash.Rproj` antes de ejecutar o tejer esta guía. La carpeta debe contener:
+
+```text
+expresion_diferencial_mash/
+├── GUIA_PRACTICA_MASH.Rmd
+├── datos/
+│   ├── conteos_GSE126848_MASH_vs_obesidad.csv
+│   └── metadata_GSE126848_MASH_vs_obesidad.csv
+└── scripts/
+    ├── 00_instalar_dependencias.R
+    └── 01_analisis_expresion_diferencial.R
+```
+
+Comprueba el directorio de trabajo:
+
+```{r comprobar-directorio}
+cat("Directorio activo:", basename(getwd()), "\n")
+
+archivos_necesarios <- c(
+  "datos/conteos_GSE126848_MASH_vs_obesidad.csv",
+  "datos/metadata_GSE126848_MASH_vs_obesidad.csv"
+)
+
+if (!all(file.exists(archivos_necesarios))) {
+  stop(
+    "No se encontraron los archivos de datos. ",
+    "Abre expresion_diferencial_mash.Rproj y vuelve a ejecutar la guía."
+  )
+}
+```
+
+## Dependencias
+
+Si es la primera vez que realizas la práctica, ejecuta en la consola:
+
+```r
+source("scripts/00_instalar_dependencias.R")
+```
+
+La instalación sólo se necesita una vez. La siguiente celda comprueba que las bibliotecas estén disponibles.
+
+```{r cargar-paquetes}
+paquetes <- c(
+  "DESeq2",
+  "tidyverse",
+  "AnnotationDbi",
+  "org.Hs.eg.db",
+  "EnhancedVolcano",
+  "pheatmap",
+  "RColorBrewer",
+  "ggrepel"
+)
+
+faltantes <- paquetes[
+  !vapply(paquetes, requireNamespace, logical(1), quietly = TRUE)
+]
+
+if (length(faltantes) > 0) {
+  stop(
+    "Faltan paquetes: ", paste(faltantes, collapse = ", "),
+    ". Ejecuta scripts/00_instalar_dependencias.R."
+  )
+}
+
+suppressPackageStartupMessages({
+  library(DESeq2)
+  library(AnnotationDbi)
+  library(org.Hs.eg.db)
+  library(EnhancedVolcano)
+  library(pheatmap)
+  library(RColorBrewer)
+  library(tidyverse)
+})
+```
+
+## Parámetros del análisis
+
+Reunir las decisiones al inicio evita cambiar un umbral en una figura sin actualizar el resto del análisis.
+
+```{r parametros}
+archivo_conteos <- "datos/conteos_GSE126848_MASH_vs_obesidad.csv"
+archivo_metadata <- "datos/metadata_GSE126848_MASH_vs_obesidad.csv"
+carpeta_resultados <- "resultados"
+
+padj_corte <- 0.05
+lfc_corte <- 1
+n_heatmap <- 30
+
+dir.create(carpeta_resultados, showWarnings = FALSE, recursive = TRUE)
+```
+
+# Contexto del dataset
+
+El dataset procede de **GSE126848**, un estudio de transcriptómica hepática humana. La cohorte original incluyó personas con peso normal, obesidad con histología hepática normal, NAFL y NASH.
+
+En esta práctica utilizamos:
+
+- `Obeso_sin_MASLD`: 12 muestras con obesidad e histología hepática normal;
+- `NASH_MASH`: 16 muestras clasificadas originalmente como NASH.
+
+Comparar estos grupos ayuda a enfocar la pregunta en la enfermedad hepática más allá de la obesidad. Sin embargo, no elimina todos los posibles factores de confusión.
+
+Fuente: [NCBI GEO GSE126848](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE126848). Publicación: [Suppli et al., 2019](https://doi.org/10.1152/ajpgi.00358.2018).
+
+# Importación de los datos
+
+## Metadatos
+
+Cada fila representa una biopsia. Las variables describen la muestra y determinan el diseño experimental.
+
+```{r importar-metadata}
+metadata <- readr::read_csv(archivo_metadata, show_col_types = FALSE)
+
+dim(metadata)
+names(metadata)
+knitr::kable(
+  head(metadata, 6),
+  caption = "Primeras seis muestras de la tabla de metadatos"
+)
+```
+
+Contemos las réplicas biológicas:
+
+```{r contar-grupos}
+metadata |>
+  count(grupo, name = "numero_de_muestras") |>
+  knitr::kable(caption = "Número de biopsias por grupo")
+```
+
+## Matriz de conteos
+
+Cada fila representa un gen y cada columna una muestra. Los valores son conteos enteros crudos. DESeq2 no debe recibir TPM, FPKM, porcentajes ni z-scores como sustitutos de estos conteos.
+
+```{r importar-conteos}
+conteos_df <- readr::read_csv(archivo_conteos, show_col_types = FALSE)
+
+dim(conteos_df)
+names(conteos_df)[1:6]
+
+conteos_df[1:5, 1:6] |>
+  knitr::kable(caption = "Fragmento de la matriz de conteos")
+```
+
+# Verificación de integridad
+
+Esta etapa evita uno de los errores más peligrosos del análisis: asignar a una columna de conteos el grupo de otra persona.
+
+```{r validar-datos}
+stopifnot(
+  "ensembl_id" %in% names(conteos_df),
+  all(c("sample_id", "grupo") %in% names(metadata)),
+  !anyDuplicated(conteos_df$ensembl_id),
+  !anyDuplicated(metadata$sample_id)
+)
+
+conteos <- conteos_df |>
+  column_to_rownames("ensembl_id") |>
+  as.matrix()
+
+storage.mode(conteos) <- "integer"
+
+metadata <- metadata |>
+  slice(match(colnames(conteos), sample_id)) |>
+  mutate(
+    grupo = factor(
+      grupo,
+      levels = c("Obeso_sin_MASLD", "NASH_MASH")
+    )
+  ) |>
+  column_to_rownames("sample_id")
+
+identical(colnames(conteos), rownames(metadata))
+stopifnot(identical(colnames(conteos), rownames(metadata)))
+```
+
+El resultado debe ser `TRUE`.
+
+> **Reflexión:** el código podría ejecutarse aunque el orden fuera incorrecto. ¿Por qué el resultado científico sería falso?
+
+# Control de calidad inicial
+
+El tamaño de biblioteca es la suma de conteos asignados en una muestra. Una biblioteca grande no significa que todos sus genes tengan mayor expresión biológica. DESeq2 estimará factores de tamaño para hacer comparables las muestras.
+
+```{r bibliotecas}
+tamanos_biblioteca <- tibble(
+  muestra = colnames(conteos),
+  lecturas_asignadas = colSums(conteos),
+  grupo = metadata$grupo
+)
+
+p_bibliotecas <- ggplot(
+  tamanos_biblioteca,
+  aes(
+    x = reorder(muestra, lecturas_asignadas),
+    y = lecturas_asignadas,
+    fill = grupo
+  )
+) +
+  geom_col(width = 0.82) +
+  coord_flip() +
+  scale_fill_manual(
+    values = c(
+      "Obeso_sin_MASLD" = "#167D8D",
+      "NASH_MASH" = "#B33A3A"
+    )
+  ) +
+  scale_y_continuous(
+    labels = scales::label_number(scale_cut = scales::cut_short_scale())
+  ) +
+  labs(
+    title = "Tamaño de biblioteca por muestra",
+    x = NULL,
+    y = "Conteos asignados",
+    fill = "Grupo"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(panel.grid.major.y = element_blank())
+
+p_bibliotecas
+
+ggsave(
+  file.path(carpeta_resultados, "00_control_calidad_bibliotecas.png"),
+  p_bibliotecas,
+  width = 8.5,
+  height = 7,
+  dpi = 300
+)
+```
+
+Preguntas para revisar antes de continuar:
+
+- ¿hay una muestra con muchos menos conteos que las demás?;
+- ¿existen identificadores duplicados?;
+- ¿faltan valores en la variable `grupo`?;
+- ¿el número de columnas coincide con el número de filas del metadata?
+
+# Filtrado de genes con baja expresión
+
+Los genes casi ausentes aportan poca información y aumentan el número de pruebas estadísticas. Usaremos un criterio explícito: conservar genes con al menos 10 conteos en 5 o más muestras.
+
+Este umbral es una decisión didáctica, no una constante universal.
+
+```{r filtrar-genes}
+mantener <- rowSums(conteos >= 10) >= 5
+conteos_filtrados <- conteos[mantener, ]
+
+resumen_filtro <- tibble(
+  etapa = c("Antes del filtro", "Después del filtro"),
+  genes = c(nrow(conteos), nrow(conteos_filtrados))
+)
+
+knitr::kable(resumen_filtro, caption = "Efecto del filtro de baja expresión")
+```
+
+# Modelo de expresión diferencial
+
+DESeq2 modela los conteos de cada gen mediante una distribución binomial negativa. El diseño `~ grupo` pregunta si la expresión cambia sistemáticamente entre los dos grupos.
+
+```{r ajustar-deseq2}
+dds <- DESeqDataSetFromMatrix(
+  countData = conteos_filtrados,
+  colData = metadata,
+  design = ~ grupo
+)
+
+dds <- DESeq(dds)
+```
+
+Durante esta etapa DESeq2 estima:
+
+- factores de tamaño, relacionados con la profundidad de cada biblioteca;
+- dispersión, que representa variación biológica entre réplicas;
+- un efecto de grupo y su incertidumbre para cada gen.
+
+# Exploración global con PCA
+
+Para la PCA y el heatmap utilizaremos la transformación estabilizadora de varianza, `VST`. El test de expresión diferencial sigue utilizando los conteos crudos.
+
+```{r pca}
+vsd <- vst(dds, blind = FALSE)
+
+pca_datos <- plotPCA(vsd, intgroup = "grupo", returnData = TRUE)
+varianza <- round(100 * attr(pca_datos, "percentVar"))
+
+p_pca <- ggplot(pca_datos, aes(PC1, PC2, color = grupo, label = name)) +
+  geom_point(size = 3.2, alpha = 0.9) +
+  ggrepel::geom_text_repel(
+    size = 2.7,
+    max.overlaps = 8,
+    show.legend = FALSE
+  ) +
+  scale_color_manual(
+    values = c(
+      "Obeso_sin_MASLD" = "#167D8D",
+      "NASH_MASH" = "#B33A3A"
+    )
+  ) +
+  labs(
+    title = "PCA de la expresión transformada",
+    x = paste0("PC1: ", varianza[1], "%"),
+    y = paste0("PC2: ", varianza[2], "%"),
+    color = "Grupo"
+  ) +
+  theme_classic(base_size = 13)
+
+p_pca
+
+ggsave(
+  file.path(carpeta_resultados, "01_PCA.png"),
+  p_pca,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
+```
+
+> **Interpretación:** puntos cercanos tienen perfiles globales parecidos. La PCA permite explorar separación, heterogeneidad y muestras alejadas, pero no prueba significancia para un gen individual.
+
+# Definición del contraste
+
+El contraste se interpreta como:
+
+```text
+NASH_MASH respecto a Obeso_sin_MASLD
+```
+
+Por tanto:
+
+- `log2FoldChange > 0`: mayor expresión estimada en NASH/MASH;
+- `log2FoldChange < 0`: menor expresión estimada en NASH/MASH;
+- `log2FoldChange = 1`: expresión dos veces mayor;
+- `log2FoldChange = -1`: expresión equivalente a la mitad.
+
+```{r calcular-contraste}
+res_crudo <- results(
+  dds,
+  contrast = c("grupo", "NASH_MASH", "Obeso_sin_MASLD"),
+  alpha = padj_corte
+)
+
+resultsNames(dds)
+```
+
+Aplicaremos contracción del `log2FoldChange` para reducir magnitudes inestables en genes con poca información.
+
+```{r shrink-lfc}
+coeficiente <- grep(
+  "grupo_NASH_MASH_vs_Obeso_sin_MASLD",
+  resultsNames(dds),
+  value = TRUE
+)
+
+stopifnot(length(coeficiente) == 1)
+
+res_shrink <- lfcShrink(
+  dds,
+  coef = coeficiente,
+  type = "normal"
+)
+```
+
+# Anotación y clasificación de genes
+
+La matriz utiliza identificadores Ensembl. Los traduciremos a símbolos génicos humanos con `org.Hs.eg.db`. Cuando no exista una correspondencia, conservaremos el identificador Ensembl.
+
+```{r anotar-resultados}
+res <- as.data.frame(res_crudo) |>
+  rownames_to_column("ensembl_id") |>
+  select(ensembl_id, baseMean, lfcSE, stat, pvalue, padj) |>
+  left_join(
+    as.data.frame(res_shrink) |>
+      rownames_to_column("ensembl_id") |>
+      select(ensembl_id, log2FoldChange),
+    by = "ensembl_id"
+  )
+
+res$symbol <- mapIds(
+  org.Hs.eg.db,
+  keys = res$ensembl_id,
+  keytype = "ENSEMBL",
+  column = "SYMBOL",
+  multiVals = "first"
+) |>
+  unname()
+
+res <- res |>
+  mutate(
+    gene = if_else(is.na(symbol) | symbol == "", ensembl_id, symbol),
+    categoria = case_when(
+      !is.na(padj) & padj < padj_corte & log2FoldChange >= lfc_corte ~
+        "Mayor en MASH",
+      !is.na(padj) & padj < padj_corte & log2FoldChange <= -lfc_corte ~
+        "Menor en MASH",
+      TRUE ~ "No cumple ambos cortes"
+    )
+  ) |>
+  arrange(padj)
+
+write_csv(
+  res,
+  file.path(carpeta_resultados, "resultados_DESeq2_todos_los_genes.csv")
+)
+
+write_csv(
+  filter(res, categoria != "No cumple ambos cortes"),
+  file.path(carpeta_resultados, "resultados_DESeq2_significativos.csv")
+)
+```
+
+## `pvalue` y `padj`
+
+Se evaluaron miles de genes. Incluso si no existiera ningún cambio real, algunas pruebas producirían valores p pequeños por azar. DESeq2 utiliza el procedimiento de Benjamini-Hochberg para ajustar por comparaciones múltiples.
+
+En esta práctica definimos un hallazgo como:
+
+```text
+padj < 0.05 y |log2FoldChange| >= 1
+```
+
+```{r resumen-resultados}
+res |>
+  count(categoria, name = "genes") |>
+  knitr::kable(caption = "Clasificación de los resultados")
+
+res |>
+  filter(categoria != "No cumple ambos cortes") |>
+  select(gene, ensembl_id, baseMean, log2FoldChange, padj, categoria) |>
+  slice_head(n = 15) |>
+  knitr::kable(
+    digits = 3,
+    caption = "Quince genes con mayor evidencia entre los que cumplen ambos cortes"
+  )
+```
+
+Un `padj < 0.05` no significa que el gen tenga 95% de probabilidad de ser verdadero. Es una regla que controla la proporción esperada de falsos descubrimientos entre los hallazgos seleccionados.
+
+# Volcano plot
+
+El volcano plot combina dos dimensiones:
+
+- eje x: dirección y magnitud del cambio;
+- eje y: evidencia estadística, expresada como `-log10(padj)`.
+
+```{r volcano, fig.width=9, fig.height=7}
+res_volcano <- res |>
+  filter(!is.na(log2FoldChange), !is.na(padj)) |>
+  mutate(
+    padj_plot = pmax(padj, .Machine$double.xmin),
+    etiqueta = if_else(
+      row_number() <= 15 & categoria != "No cumple ambos cortes",
+      gene,
+      ""
+    )
+  )
+
+colores_volcano <- case_when(
+  res_volcano$categoria == "Menor en MASH" ~ "#167D8D",
+  res_volcano$categoria == "Mayor en MASH" ~ "#B33A3A",
+  TRUE ~ "#A7ADB4"
+)
+
+names(colores_volcano) <- case_when(
+  res_volcano$categoria == "Menor en MASH" ~ "Menor en MASH",
+  res_volcano$categoria == "Mayor en MASH" ~ "Mayor en MASH",
+  TRUE ~ "No cumple ambos cortes"
+)
+
+p_volcano <- EnhancedVolcano(
+  res_volcano,
+  lab = res_volcano$gene,
+  selectLab = res_volcano$gene[res_volcano$etiqueta != ""],
+  x = "log2FoldChange",
+  y = "padj_plot",
+  xlab = bquote(Log[2] ~ "fold change (MASH / obesidad sin MASLD)"),
+  ylab = bquote(-Log[10] ~ "p ajustado"),
+  title = "Expresión diferencial en hígado humano",
+  subtitle = "NASH/MASH vs obesidad con histología hepática normal",
+  pCutoff = padj_corte,
+  FCcutoff = lfc_corte,
+  pointSize = 2.1,
+  labSize = 3.5,
+  colCustom = colores_volcano,
+  colAlpha = 0.72,
+  drawConnectors = TRUE,
+  widthConnectors = 0.35,
+  max.overlaps = Inf,
+  legendPosition = "right",
+  caption = paste0(
+    "Cortes: padj < ", padj_corte,
+    "; |log2FC| >= ", lfc_corte
+  )
+)
+
+p_volcano
+
+ggsave(
+  file.path(carpeta_resultados, "02_volcano_MASH_vs_obesidad.png"),
+  p_volcano,
+  width = 9,
+  height = 7,
+  dpi = 320
+)
+
+ggsave(
+  file.path(carpeta_resultados, "02_volcano_MASH_vs_obesidad.pdf"),
+  p_volcano,
+  width = 9,
+  height = 7
+)
+```
+
+> **Actividad:** selecciona dos genes etiquetados. ¿Su dirección concuerda con lo que esperabas a partir de la fisiopatología? Una coincidencia no demuestra causalidad.
+
+# Heatmap
+
+El heatmap responde una pregunta diferente: ¿cómo se distribuye el patrón de los genes seleccionados entre las biopsias?
+
+Seleccionaremos los 30 genes con menor `padj`. Después estandarizaremos cada fila. El color mostrará si una muestra se encuentra por encima o por debajo de la media de **ese mismo gen**.
+
+```{r preparar-heatmap}
+genes_heatmap <- res |>
+  filter(!is.na(padj), padj < padj_corte) |>
+  slice_head(n = n_heatmap) |>
+  pull(ensembl_id)
+
+stopifnot(length(genes_heatmap) >= 2)
+
+matriz_heatmap <- assay(vsd)[genes_heatmap, , drop = FALSE]
+
+nombres_filas <- res |>
+  filter(ensembl_id %in% genes_heatmap) |>
+  select(ensembl_id, gene) |>
+  distinct(ensembl_id, .keep_all = TRUE)
+
+rownames(matriz_heatmap) <- make.unique(
+  nombres_filas$gene[
+    match(rownames(matriz_heatmap), nombres_filas$ensembl_id)
+  ]
+)
+
+matriz_z <- t(scale(t(matriz_heatmap)))
+matriz_z[!is.finite(matriz_z)] <- 0
+
+anotacion_columnas <- data.frame(
+  Grupo = metadata[colnames(matriz_z), "grupo", drop = TRUE],
+  row.names = colnames(matriz_z)
+)
+
+colores_anotacion <- list(
+  Grupo = c(
+    "Obeso_sin_MASLD" = "#167D8D",
+    "NASH_MASH" = "#B33A3A"
+  )
+)
+```
+
+```{r heatmap, fig.width=10, fig.height=7.3}
+p_heatmap <- pheatmap(
+  matriz_z,
+  annotation_col = anotacion_columnas,
+  annotation_colors = colores_anotacion,
+  color = colorRampPalette(c("#173F5F", "#F7F7F2", "#B33A3A"))(101),
+  cluster_rows = TRUE,
+  cluster_cols = TRUE,
+  show_colnames = FALSE,
+  fontsize_row = 8,
+  border_color = NA,
+  main = paste0("Top ", length(genes_heatmap), " genes por p ajustado"),
+  silent = TRUE
+)
+
+grid::grid.newpage()
+grid::grid.draw(p_heatmap$gtable)
+
+png(
+  file.path(carpeta_resultados, "03_heatmap_top_genes.png"),
+  width = 3000,
+  height = 2200,
+  res = 300
+)
+grid::grid.draw(p_heatmap$gtable)
+dev.off()
+
+pdf(
+  file.path(carpeta_resultados, "03_heatmap_top_genes.pdf"),
+  width = 10,
+  height = 7.3
+)
+grid::grid.draw(p_heatmap$gtable)
+dev.off()
+```
+
+> **Importante:** un valor rojo de un gen no debe compararse con el rojo de otro como si fueran niveles absolutos. Cada fila tiene su propia media y desviación estándar.
+
+# Interpretación biológica responsable
+
+Un cambio de ARN en tejido hepático total puede originarse por:
+
+1. un cambio de estado dentro de una célula;
+2. una diferencia en la proporción de tipos celulares;
+3. una combinación de ambos procesos;
+4. factores clínicos o técnicos no incluidos en el modelo.
+
+Por tanto, el resultado permite hablar de **asociación transcriptómica**, pero no demuestra por sí solo actividad proteica, flujo metabólico ni causalidad.
+
+Completa estas preguntas:
+
+1. ¿Cuántos genes cumplen simultáneamente los dos cortes?
+2. ¿Qué significa un `log2FoldChange` negativo en este contraste?
+3. ¿El heatmap separa completamente los grupos o muestra heterogeneidad?
+4. ¿Qué genes podrían reflejar abundancia de macrófagos, endotelio o células estrelladas?
+5. ¿Qué experimento adicional ayudaría a evaluar causalidad?
+6. ¿Qué factor clínico podría confundir la comparación?
+
+# Exportación y reproducibilidad
+
+Los productos se guardaron en la carpeta `resultados/`:
+
+```{r listar-resultados}
+resumen <- tibble(
+  metrica = c(
+    "muestras_control",
+    "muestras_MASH",
+    "genes_antes_filtro",
+    "genes_despues_filtro",
+    "genes_mayores_en_MASH",
+    "genes_menores_en_MASH"
+  ),
+  valor = c(
+    sum(metadata$grupo == "Obeso_sin_MASLD"),
+    sum(metadata$grupo == "NASH_MASH"),
+    nrow(conteos),
+    nrow(conteos_filtrados),
+    sum(res$categoria == "Mayor en MASH"),
+    sum(res$categoria == "Menor en MASH")
+  )
+)
+
+write_csv(resumen, file.path(carpeta_resultados, "resumen_analisis.csv"))
+writeLines(
+  capture.output(sessionInfo()),
+  file.path(carpeta_resultados, "sessionInfo.txt")
+)
+
+knitr::kable(resumen, caption = "Resumen reproducible del análisis")
+
+list.files(carpeta_resultados)
+```
+
+# Lista de comprobación final
+
+- [ ] Abrí el proyecto correcto de RStudio.
+- [ ] Identifiqué la unidad experimental y el número de réplicas.
+- [ ] Verifiqué el orden de conteos y metadatos.
+- [ ] Declaré el filtro de baja expresión.
+- [ ] Escribí el contraste en palabras.
+- [ ] Interpreté correctamente el signo del `log2FoldChange`.
+- [ ] Utilicé `padj` para seleccionar hallazgos.
+- [ ] Exporté la tabla completa, no sólo los genes significativos.
+- [ ] Mi volcano plot muestra los umbrales y la dirección del contraste.
+- [ ] Mi heatmap utiliza datos transformados y z-score por gen.
+- [ ] Expliqué al menos una limitación biológica o técnica.
+
+# Información de la sesión
+
+Conservar esta salida permite identificar las versiones exactas utilizadas.
+
+```{r session-info}
+sessionInfo()
+```
+
+# Referencias
+
+- Suppli MP et al. *Hepatic transcriptome signatures in patients with varying degrees of nonalcoholic fatty liver disease compared with healthy normal-weight individuals*. **Am J Physiol Gastrointest Liver Physiol**. 2019;316:G462-G472. [doi:10.1152/ajpgi.00358.2018](https://doi.org/10.1152/ajpgi.00358.2018).
+- Love MI, Huber W, Anders S. *Moderated estimation of fold change and dispersion for RNA-seq data with DESeq2*. **Genome Biology**. 2014;15:550. [doi:10.1186/s13059-014-0550-8](https://doi.org/10.1186/s13059-014-0550-8).
+- Benjamini Y, Hochberg Y. *Controlling the false discovery rate: a practical and powerful approach to multiple testing*. **J Royal Stat Soc B**. 1995;57:289-300. [doi:10.1111/j.2517-6161.1995.tb02031.x](https://doi.org/10.1111/j.2517-6161.1995.tb02031.x).

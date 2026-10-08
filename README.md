@@ -24,7 +24,7 @@ Cada módulo integra datos sintéticos o públicos con procedencia documentada, 
 |---|---|---|---|
 | Estadística descriptiva | Importación, limpieza, normalidad, media/DE y mediana/RIQ | Scripts, datos sintéticos, guía y figuras | [Abrir guía](GUIA_DEFINITIVA.md) |
 | Visualización con ggplot2 | Capas, boxplots, observaciones individuales y exportación científica | Script, infografía y figuras | [Abrir script](scripts/02_ggplot_caja_publicacion.R) |
-| Expresión diferencial en MASH | RNA-seq bulk, DESeq2, control de calidad, PCA, volcano plot y heatmap | Datos humanos de GEO, scripts, resultados, presentación y tarea | [Abrir módulo](workflows/expresion_diferencial_mash/README.md) |
+| Expresión diferencial en MASH | RNA-seq bulk, DESeq2, control de calidad, PCA, volcano plot y heatmap | Guía R Markdown, datos humanos de GEO, scripts y tarea | [Abrir módulo](workflows/expresion_diferencial_mash/README.md) |
 
 ## Inicio rápido
 
@@ -45,10 +45,10 @@ Para la práctica de expresión diferencial, abre como proyecto la carpeta
 
 ```r
 source("scripts/00_instalar_dependencias.R") # sólo la primera vez
-source("scripts/02_analisis_expresion_diferencial.R")
+source("scripts/01_analisis_expresion_diferencial.R")
 ```
 
-El script `01_preparar_dataset_GSE126848.R` documenta la preparación del dataset y no necesita ejecutarse durante la clase.
+La ruta principal de aprendizaje es `GUIA_PRACTICA_MASH.Rmd`. El script continuo permite repetir el mismo análisis sin detenerse entre secciones.
 
 ## Estructura
 
@@ -60,11 +60,10 @@ biostatistics-workflows/
 ├── resultados/                    Resultados del workflow introductorio
 └── workflows/
     └── expresion_diferencial_mash/
+        ├── GUIA_PRACTICA_MASH.Rmd Guía reproducible para estudiantes
+        ├── TAREA.md               Instrucciones y rúbrica
         ├── datos/                 Conteos y metadatos de GSE126848
-        ├── scripts/               Instalación, preparación y análisis
-        ├── resultados/            PCA, tablas, volcano plot y heatmap
-        ├── presentacion/           Presentación editable para clase
-        └── docencia/               Guía docente, tarea y rúbrica
+        └── scripts/               Instalación y análisis continuo
 ```
 
 El [índice de workflows](workflows/README.md) resume la organización prevista para añadir módulos futuros.
